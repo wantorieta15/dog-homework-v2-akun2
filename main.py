@@ -7,7 +7,8 @@ writes it to entry.txt in the output directory from MAKEFUN_OUTPUT_DIR
 (default /output). Standard library only; no third-party dependencies.
 
 The output file is written directly with open() and its mode is set
-explicitly to 0644 so the grader can read it.
+explicitly to 0644 so the grader can read it. After writing, the file
+is re-read and must be byte-identical to the entry, or the run fails.
 """
 
 import hashlib
@@ -37,6 +38,19 @@ def check_single_line(text):
             raise ValueError("entry must be a single line (no newline characters)")
 
 
+def check_no_edge_whitespace(text):
+    if text != text.strip():
+        raise ValueError("entry must not start or end with whitespace")
+
+
+def check_no_control_chars(text):
+    bad = [ch for ch in text if ord(ch) < 32 or ord(ch) == 127]
+    if bad:
+        raise ValueError(
+            "entry contains control character(s): %r" % bad[:5]
+        )
+
+
 def check_not_blank(text):
     if not text.strip():
         raise ValueError("entry must not be whitespace only")
@@ -48,6 +62,8 @@ def validate(text):
     check_length(text)
     check_single_line(text)
     check_not_blank(text)
+    check_no_edge_whitespace(text)
+    check_no_control_chars(text)
     return text
 
 
@@ -57,12 +73,29 @@ def output_path():
     return os.path.join(out_dir, "entry.txt")
 
 
+def verify_roundtrip(path, text):
+    """Re-read the file and require byte-identical content.
+
+    The write above is direct (open + chmod, no temp file, no rename),
+    and this check proves the bytes on disk are exactly the entry.
+    """
+    expected = text.encode("utf-8")
+    with open(path, "rb") as handle:
+        actual = handle.read()
+    if actual != expected:
+        raise RuntimeError(
+            "round-trip mismatch: wrote %d bytes, read %d bytes"
+            % (len(expected), len(actual))
+        )
+
+
 def write_entry(path, text):
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(text)
         handle.flush()
         os.fsync(handle.fileno())
     os.chmod(path, 0o644)
+    verify_roundtrip(path, text)
 
 
 def main():
